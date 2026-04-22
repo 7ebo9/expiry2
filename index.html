@@ -42,6 +42,8 @@
   .btn-sm { padding: 5px 12px; font-size: 0.72rem; }
   .btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   .btn-warn { background: var(--warn); color: #0d0f0e; }
+  .btn-purple { background: #a78bfa; color: #0d0f0e; }
+  .btn-purple:hover { background: #8b5cf6; }
   .stats-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 18px 20px; }
   .stat-card .num { font-family: var(--serif); font-size: 2rem; font-weight: 700; line-height: 1; margin-bottom: 4px; }
@@ -71,13 +73,13 @@
   .days-bar { display: flex; align-items: center; gap: 8px; }
   .bar-track { width: 80px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 2px; }
-  .action-btns { display: flex; gap: 6px; }
+  .action-btns { display: flex; gap: 6px; flex-wrap: wrap; }
   .empty-state { padding: 64px; text-align: center; color: var(--muted); }
   .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; display: block; }
   .empty-state p { font-size: 0.82rem; line-height: 1.6; }
   .spinner { width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #0d0f0e; padding: 12px 20px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; opacity: 0; transform: translateY(8px); transition: all 0.25s; z-index: 100; pointer-events: none; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #0d0f0e; padding: 12px 20px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; opacity: 0; transform: translateY(8px); transition: all 0.25s; z-index: 100; pointer-events: none; max-width: 300px; }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.error { background: var(--danger); color: white; }
   .info-box { background: rgba(181,242,61,0.06); border: 1px solid rgba(181,242,61,0.18); border-radius: 6px; padding: 12px 16px; font-size: 0.75rem; color: var(--accent-dim); margin-bottom: 20px; line-height: 1.7; }
@@ -179,6 +181,7 @@
   let allProducts = [];
   let currentFilter = 'all';
   let modalTarget = null;
+  let expiringCollectionId = null;
 
   function getDaysLeft(d) {
     const today = new Date(); today.setHours(0,0,0,0);
@@ -303,7 +306,7 @@
       const bp = Math.max(0, Math.min(100, (p.daysLeft/90)*100));
       const bc2 = p.status==='critical' ? 'var(--danger)' : p.status==='warning' ? 'var(--warn)' : 'var(--accent)';
       const ds = new Date(p.expiryDate).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'});
-      return '<tr><td><div class="product-name">'+p.productTitle+'</div></td><td><div class="variant-name">'+p.variantTitle+'</div></td><td>'+ds+'</td><td><div class="days-bar"><div class="bar-track"><div class="bar-fill" style="width:'+bp+'%;background:'+bc2+';"></div></div><span style="color:'+bc2+';font-weight:500;">'+p.daysLeft+'d</span></div></td><td><span class="badge '+bc+'">'+bl+'</span></td><td>$'+p.price.toFixed(2)+'</td><td><div class="action-btns"><button class="btn btn-warn btn-sm" onclick="openDiscountModal('+p.variantId+',\''+p.productTitle.replace(/'/g,"\\'")+'\','+p.price+')">Discount</button><button class="btn btn-outline btn-sm" onclick="tagProduct('+p.productId+')">Tag</button></div></td></tr>';
+      return '<tr><td><div class="product-name">'+p.productTitle+'</div></td><td><div class="variant-name">'+p.variantTitle+'</div></td><td>'+ds+'</td><td><div class="days-bar"><div class="bar-track"><div class="bar-fill" style="width:'+bp+'%;background:'+bc2+';"></div></div><span style="color:'+bc2+';font-weight:500;">'+p.daysLeft+'d</span></div></td><td><span class="badge '+bc+'">'+bl+'</span></td><td>$'+p.price.toFixed(2)+'</td><td><div class="action-btns"><button class="btn btn-warn btn-sm" onclick="openDiscountModal('+p.variantId+',\''+p.productTitle.replace(/'/g,"\\'")+'\','+p.price+')">Discount</button><button class="btn btn-purple btn-sm" onclick="addToCollection('+p.productId+',\''+p.productTitle.replace(/'/g,"\\'")+'\')">+ Collection</button></div></td></tr>';
     }).join('');
   }
 
@@ -344,14 +347,47 @@
     }
   }
 
-  async function tagProduct(productId) {
+  async function getOrCreateCollection(domain, token) {
+    // Check if collection already exists
+    const data = await shopifyAPI(domain, token, '/custom_collections.json?title=Expiring+Soon');
+    if (data.custom_collections && data.custom_collections.length > 0) {
+      return data.custom_collections[0].id;
+    }
+    // Create it if it doesn't exist
+    const created = await shopifyAPI(domain, token, '/custom_collections.json', 'POST', {
+      custom_collection: {
+        title: 'Expiring Soon',
+        body_html: '<p>Products expiring within the next 90 days.</p>',
+        published: true
+      }
+    });
+    return created.custom_collection.id;
+  }
+
+  async function addToCollection(productId, productTitle) {
     const domain = document.getElementById('storeDomain').value.trim();
     const token = document.getElementById('apiToken').value.trim();
     try {
-      const data = await shopifyAPI(domain, token, '/products/'+productId+'.json?fields=id,tags');
-      const tags = data.product.tags ? data.product.tags+', expiring-soon' : 'expiring-soon';
-      await shopifyAPI(domain, token, '/products/'+productId+'.json', 'PUT', { product: { id: productId, tags } });
-      showToast('Tagged with expiring-soon');
+      showToast('Adding to collection…');
+
+      // Get or create the Expiring Soon collection
+      if (!expiringCollectionId) {
+        expiringCollectionId = await getOrCreateCollection(domain, token);
+      }
+
+      // Check if product is already in collection
+      const existing = await shopifyAPI(domain, token, '/collects.json?collection_id='+expiringCollectionId+'&product_id='+productId);
+      if (existing.collects && existing.collects.length > 0) {
+        showToast(productTitle + ' is already in Expiring Soon');
+        return;
+      }
+
+      // Add product to collection
+      await shopifyAPI(domain, token, '/collects.json', 'POST', {
+        collect: { product_id: productId, collection_id: expiringCollectionId }
+      });
+
+      showToast('✓ Added to Expiring Soon collection');
     } catch(e) {
       showToast('Failed: '+e.message, true);
     }
