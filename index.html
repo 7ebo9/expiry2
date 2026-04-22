@@ -123,7 +123,7 @@
   </div>
 
   <div class="info-box">
-    Reads the <code>custom.expiry_date</code> metafield on each product. Add it in Shopify Admin → Settings → Custom Data → Products first.
+    Reads the <code>custom.expiry_date</code> metafield on each product variant. Set expiry dates on individual variants in Shopify Admin → Products → select product → scroll to variant metafields.
   </div>
 
   <div class="stats-bar">
@@ -237,10 +237,10 @@
 
       const enriched = [];
       for (const product of products) {
-        const mData = await shopifyAPI(domain, token, '/products/' + product.id + '/metafields.json?key=expiry_date&namespace=custom');
-        const expiryMeta = mData.metafields && mData.metafields.find(m => m.key === 'expiry_date');
-        if (expiryMeta) {
-          for (const variant of product.variants) {
+        for (const variant of product.variants) {
+          const mData = await shopifyAPI(domain, token, '/variants/' + variant.id + '/metafields.json?key=expiry_date&namespace=custom');
+          const expiryMeta = mData.metafields && mData.metafields.find(m => m.key === 'expiry_date');
+          if (expiryMeta) {
             const days = getDaysLeft(expiryMeta.value);
             if (days <= 90) {
               enriched.push({
